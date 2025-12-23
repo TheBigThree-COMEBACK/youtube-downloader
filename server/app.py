@@ -21,6 +21,9 @@ DOWNLOAD_FOLDER.mkdir(exist_ok=True)
 # Store download status in memory
 download_status = {}
 
+# Free tier limit in MB
+FREE_TIER_LIMIT_MB = 500
+
 print("=" * 50)
 print("🚀 YouTube Downloader Backend Starting...")
 print("=" * 50)
@@ -135,7 +138,7 @@ def start_download():
     if 'youtube.com' not in url and 'youtu.be' not in url:
         return jsonify({'error': 'Invalid YouTube URL'}), 400
 
-    # Optional: Check video info before downloading
+    # Check video info before downloading
     try:
         ydl_opts_info = {'quiet': True, 'no_warnings': True}
         with yt_dlp.YoutubeDL(ydl_opts_info) as ydl:
@@ -143,11 +146,14 @@ def start_download():
             filesize = info.get('filesize') or info.get('filesize_approx', 0)
             filesize_mb = filesize / (1024 * 1024) if filesize else 0
             
-            # Warn if very large (optional - remove if you want no limit)
-            if filesize_mb > 1000:  # 1 GB warning
+            # Free tier limit check
+            if filesize_mb > FREE_TIER_LIMIT_MB:
                 return jsonify({
-                    'error': f'Video is very large ({filesize_mb:.1f} MB). This may fail on free tier. Try a shorter/lower quality video.'
-                }), 400
+                    'error': 'size_limit',
+                    'size_mb': round(filesize_mb, 1),
+                    'limit_mb': FREE_TIER_LIMIT_MB,
+                    'message': f'Video size ({filesize_mb:.1f} MB) exceeds free tier limit ({FREE_TIER_LIMIT_MB} MB).'
+                }), 403  # 403 = Forbidden
     except Exception as e:
         # If we can't get info, continue anyway
         print(f"⚠️ Could not check video info: {e}")
@@ -206,6 +212,7 @@ def get_file(download_id):
 if __name__ == '__main__':
     print("\n✅ Backend Ready!")
     print(f"📂 Download folder: {DOWNLOAD_FOLDER}")
+    print(f"📏 Free tier limit: {FREE_TIER_LIMIT_MB} MB")
     import os
     port = int(os.environ.get('PORT', 5000))
     print(f"📍 Running on port: {port}")
