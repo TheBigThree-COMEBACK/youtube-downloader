@@ -9,12 +9,13 @@ import uuid
 import threading
 import time
 import re
+import tempfile
 from pathlib import Path
 
 app = Flask(__name__)
 
-# Create downloads directory in server folder
-DOWNLOAD_FOLDER = Path(__file__).parent / 'downloads'
+# Use system temp directory instead of local downloads folder
+DOWNLOAD_FOLDER = Path(tempfile.gettempdir()) / 'yt_downloads'
 DOWNLOAD_FOLDER.mkdir(exist_ok=True)
 
 # Store download status in memory
@@ -26,17 +27,17 @@ print("=" * 50)
 
 
 def cleanup_old_files():
-    """Clean up files older than 1 hour"""
+    """Clean up files older than 30 minutes"""
     while True:
         try:
             current_time = time.time()
             for file_path in DOWNLOAD_FOLDER.glob('*'):
-                if current_time - file_path.stat().st_mtime > 3600:
+                if current_time - file_path.stat().st_mtime > 1800:  # 30 mins
                     file_path.unlink()
                     print(f"🗑️ Cleaned up: {file_path.name}")
         except Exception as e:
             print(f"⚠️ Cleanup error: {e}")
-        time.sleep(600)
+        time.sleep(300)  # Check every 5 minutes
 
 
 cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True)
@@ -54,28 +55,26 @@ def sanitize_filename(title):
 
 
 def download_video(url, download_id):
-    """Download video in background"""
+    """Download video in background with better quality options"""
     try:
         output_template = str(DOWNLOAD_FOLDER / f'{download_id}.%(ext)s')
 
         ydl_opts = {
-            'format':
-            'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
-            'outtmpl':
-            output_template,
-            'merge_output_format':
-            'mp4',
-            'quiet':
-            True,
-            'no_warnings':
-            True,
-            'restrictfilenames':
-            True,  # Remove special characters
+            # Best quality: video + audio, prefer mp4
+            'format': 'bestvideo[ext=mp4][height<=2160]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio/best[height<=2160]/best',
+            'outtmpl': output_template,
+            'merge_output_format': 'mp4',
+            'quiet': True,
+            'no_warnings': True,
+            'restrictfilenames': True,
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
                 'preferedformat': 'mp4',
             }],
             'progress_hooks': [lambda d: update_progress(d, download_id)],
+            # Additional options for better quality
+            'prefer_free_formats': False,
+            'youtube_include_dash_manifest': True,
         }
 
         download_status[download_id] = {'status': 'downloading', 'progress': 0}
@@ -83,6 +82,10 @@ def download_video(url, download_id):
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
+            
+            # Get file size info
+            filesize = info.get('filesize') or info.get('filesize_approx', 0)
+            filesize_mb = filesize / (1024 * 1024) if filesize else 0
 
             # Find the downloaded file
             for file in DOWNLOAD_FOLDER.glob(f'{download_id}*'):
@@ -90,14 +93,15 @@ def download_video(url, download_id):
                     download_status[download_id] = {
                         'status': 'complete',
                         'filename': file.name,
-                        'title': sanitize_filename(info.get('title', 'video'))
+                        'title': sanitize_filename(info.get('title', 'video')),
+                        'size_mb': round(filesize_mb, 1)
                     }
-                    print(f"✅ Complete: {info.get('title', 'video')}")
+                    print(f"✅ Complete: {info.get('title', 'video')} ({filesize_mb:.1f} MB)")
                     return
 
         download_status[download_id] = {
             'status': 'error',
-            'message': 'File not found'
+            'message': 'File not found after download'
         }
 
     except Exception as e:
@@ -131,6 +135,23 @@ def start_download():
     if 'youtube.com' not in url and 'youtu.be' not in url:
         return jsonify({'error': 'Invalid YouTube URL'}), 400
 
+    # Optional: Check video info before downloading
+    try:
+        ydl_opts_info = {'quiet': True, 'no_warnings': True}
+        with yt_dlp.YoutubeDL(ydl_opts_info) as ydl:
+            info = ydl.extract_info(url, download=False)
+            filesize = info.get('filesize') or info.get('filesize_approx', 0)
+            filesize_mb = filesize / (1024 * 1024) if filesize else 0
+            
+            # Warn if very large (optional - remove if you want no limit)
+            if filesize_mb > 1000:  # 1 GB warning
+                return jsonify({
+                    'error': f'Video is very large ({filesize_mb:.1f} MB). This may fail on free tier. Try a shorter/lower quality video.'
+                }), 400
+    except Exception as e:
+        # If we can't get info, continue anyway
+        print(f"⚠️ Could not check video info: {e}")
+
     download_id = str(uuid.uuid4())
     thread = threading.Thread(target=download_video, args=(url, download_id))
     thread.daemon = True
@@ -160,29 +181,33 @@ def get_file(download_id):
 
     @after_this_request
     def cleanup(response):
-
         def delayed_delete():
-            time.sleep(3)
+            time.sleep(5)  # Wait 5 seconds before deleting
             try:
                 filepath.unlink()
                 if download_id in download_status:
                     del download_status[download_id]
                 print(f"🗑️ Cleaned: {filename}")
-            except:
-                pass
+            except Exception as e:
+                print(f"⚠️ Cleanup failed: {e}")
 
         threading.Thread(target=delayed_delete, daemon=True).start()
         return response
 
-    return send_file(filepath,
-                     as_attachment=True,
-                     download_name=f"{status.get('title', 'video')}.mp4")
+    # Stream file in chunks (better for large files)
+    return send_file(
+        filepath,
+        as_attachment=True,
+        download_name=f"{status.get('title', 'video')}.mp4",
+        mimetype='video/mp4'
+    )
 
 
 if __name__ == '__main__':
     print("\n✅ Backend Ready!")
-    print("📍 Running on: http://0.0.0.0:5002")
-    print("-" * 50 + "\n")
+    print(f"📂 Download folder: {DOWNLOAD_FOLDER}")
     import os
     port = int(os.environ.get('PORT', 5000))
+    print(f"📍 Running on port: {port}")
+    print("-" * 50 + "\n")
     app.run(host='0.0.0.0', port=port)
