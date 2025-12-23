@@ -24,7 +24,6 @@
             position: relative;
         }
         
-        /* Animated gradient background */
         body::before {
             content: '';
             position: fixed;
@@ -46,7 +45,6 @@
             66% { transform: translate(-5%, 5%) rotate(240deg); }
         }
         
-        /* Subtle snowfall */
         .snowflake {
             position: fixed;
             top: -10px;
@@ -294,7 +292,6 @@
             font-weight: 400;
         }
         
-        /* Modal Styles */
         .modal-overlay {
             display: none;
             position: fixed;
@@ -439,7 +436,7 @@
             background: rgba(255, 255, 255, 0.1);
         }
         
-        /* Footer */
+        /* Footer - HIDDEN BY DEFAULT */
         .footer {
             position: fixed;
             bottom: 0;
@@ -451,6 +448,23 @@
             border-top: 1px solid rgba(255, 255, 255, 0.06);
             backdrop-filter: blur(20px);
             z-index: 10;
+            display: none;
+            animation: slideInFooter 0.4s ease;
+        }
+        
+        .footer.show {
+            display: block;
+        }
+        
+        @keyframes slideInFooter {
+            from {
+                opacity: 0;
+                transform: translateY(100%);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
         
         .footer-text {
@@ -584,7 +598,7 @@
             
             <div class="modal-buttons">
                 <button class="btn-modal primary" onclick="contactDeveloper()">
-                    📧 Contact Developer
+                    Contact Developer
                 </button>
                 <button class="btn-modal secondary" onclick="closeModal()">
                     Close
@@ -593,16 +607,15 @@
         </div>
     </div>
     
-    <!-- Footer -->
+    <!-- Footer - Shows only after size limit hit -->
     <div class="footer">
         <p class="footer-text">Need help or want premium features?</p>
         <a href="#" class="btn-contact" onclick="contactDeveloper(); return false;">
-            📧 Consult the Developer
+            Consult the Developer
         </a>
     </div>
     
     <script>
-        // Subtle snowfall
         function createSnowflake() {
             const snowflake = document.createElement('div');
             snowflake.classList.add('snowflake');
@@ -617,7 +630,6 @@
         
         setInterval(createSnowflake, 200);
         
-        // Download functionality
         let currentDownloadId = null;
         
         function startDownload() {
@@ -649,7 +661,6 @@
             })
             .then(response => {
                 if (response.status === 403) {
-                    // Size limit error
                     return response.json().then(data => {
                         showSizeLimitModal(data);
                         throw new Error('size_limit');
@@ -684,7 +695,10 @@
             document.getElementById('tierLimit').textContent = `${data.limit_mb} MB`;
             modal.classList.add('show');
             
-            // Hide status card
+            // Show footer when size limit is hit
+            const footer = document.querySelector('.footer');
+            footer.classList.add('show');
+            
             const statusCard = document.getElementById('statusCard');
             statusCard.classList.remove('show');
         }
@@ -694,23 +708,23 @@
             modal.classList.remove('show');
         }
         
- function contactDeveloper() {
-    const statusCard = document.getElementById('statusCard');
-    const statusText = document.getElementById('statusText');
-    
-    closeModal();
-    
-    statusCard.className = 'status-card show downloading';
-    statusCard.style.background = 'rgba(139, 92, 246, 0.08)';
-    statusCard.style.borderColor = 'rgba(139, 92, 246, 0.2)';
-    statusText.innerHTML = 'Contact the developer for premium access with unlimited downloads and priority support.';
-    
-    setTimeout(() => {
-        statusCard.classList.remove('show');
-        statusCard.style.background = '';
-        statusCard.style.borderColor = '';
-    }, 6000);
-}
+        function contactDeveloper() {
+            const statusCard = document.getElementById('statusCard');
+            const statusText = document.getElementById('statusText');
+            
+            closeModal();
+            
+            statusCard.className = 'status-card show downloading';
+            statusCard.style.background = 'rgba(139, 92, 246, 0.08)';
+            statusCard.style.borderColor = 'rgba(139, 92, 246, 0.2)';
+            statusText.innerHTML = 'Contact the developer for premium access with unlimited downloads and priority support.';
+            
+            setTimeout(() => {
+                statusCard.classList.remove('show');
+                statusCard.style.background = '';
+                statusCard.style.borderColor = '';
+            }, 6000);
+        }
         
         function checkStatus() {
             if (!currentDownloadId) return;
@@ -766,14 +780,12 @@
             }, 1000);
         }
         
-        // Enter key support
         document.getElementById('urlInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 startDownload();
             }
         });
         
-        // Clear on focus
         document.getElementById('urlInput').addEventListener('focus', function() {
             const statusCard = document.getElementById('statusCard');
             if (statusCard.classList.contains('error')) {
@@ -781,7 +793,6 @@
             }
         });
         
-        // Close modal on overlay click
         document.getElementById('sizeLimitModal').addEventListener('click', function(e) {
             if (e.target === this) {
                 closeModal();
